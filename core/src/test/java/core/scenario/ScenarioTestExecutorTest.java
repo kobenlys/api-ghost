@@ -5,6 +5,7 @@ import com.apighost.model.scenario.result.ResultStep;
 import com.apighost.model.scenario.ScenarioResult;
 import com.apighost.model.scenario.step.*;
 import com.apighost.model.scenario.request.*;
+import com.apighost.scenario.callback.ScenarioResultCallback;
 import com.apighost.scenario.executor.ScenarioTestExecutor;
 import org.junit.jupiter.api.Test;
 
@@ -86,7 +87,7 @@ class ScenarioTestExecutorTest {
 
         ScenarioTestExecutor executor = new ScenarioTestExecutor();
 
-        ScenarioResult result = executor.execute(scenario, null);
+        ScenarioResult result = executor.execute(scenario, new ScenarioResultCallback() {});
 
         assertNotNull(result);
         assertEquals(2, result.getResults().size());

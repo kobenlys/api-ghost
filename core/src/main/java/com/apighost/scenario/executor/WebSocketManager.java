@@ -1,9 +1,11 @@
 package com.apighost.scenario.executor;
 
+import com.apighost.scenario.util.WebSocketRetryScheduler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.net.http.WebSocket;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
 
 /**
@@ -21,6 +23,9 @@ import java.util.concurrent.*;
  */
 public class WebSocketManager {
 
+    private static final Logger log = LoggerFactory.getLogger(WebSocketManager.class);
+
+
     /** Stores WebSocket sessions per thread */
     private static final ConcurrentHashMap<Long, WebSocket> webSocketStore =
         new ConcurrentHashMap<>();
@@ -32,6 +37,16 @@ public class WebSocketManager {
     /** Stores connection acknowledgment futures per thread */
     private static final ConcurrentHashMap<Long, CompletableFuture<Boolean>> connectAckStore =
         new ConcurrentHashMap<>();
+
+    /** WebSocket Disconnect Failure RetryQueue */
+    private static final Queue<Map.Entry<Long, WebSocket>> retryQueue = new ConcurrentLinkedQueue<>();
+
+    /** Retry Scheduler */
+    private final static WebSocketRetryScheduler retryScheduler = new WebSocketRetryScheduler(retryQueue);
+
+    static {
+        retryScheduler.start();
+    }
 
     /**
      * Associates the current thread's ID with the given WebSocket instance.
@@ -136,10 +151,23 @@ public class WebSocketManager {
     /**
      * Clears all stored WebSocket sessions, subscriptions, and acknowledgment futures.
      * <p>
-     * Sends a close frame to all active WebSocket sessions before clearing.
+     * Attempts to send a close frame to all active WebSocket sessions before clearing.
+     * Any failures during close are logged but do not prevent resource cleanup.
      */
     public static void removeAll() {
-        webSocketStore.values().forEach(ws -> ws.sendClose(WebSocket.NORMAL_CLOSURE, "Clear"));
+
+        for (Map.Entry<Long, WebSocket> ws : webSocketStore.entrySet()) {
+            try {
+                ws.getValue().sendClose(WebSocket.NORMAL_CLOSURE, "Clear");
+            } catch (Exception e) {
+                log.warn("Failed to close WebSocket session: {}", ws.getKey());
+                retryQueue.add(ws);
+            }
+        }
+
+        webSocketStore.keySet()
+            .removeIf(id -> retryQueue.stream().noneMatch(ws -> Objects.equals(ws.getKey(), id)));
+
         connectAckStore.clear();
         subscribeStore.clear();
         webSocketStore.clear();
